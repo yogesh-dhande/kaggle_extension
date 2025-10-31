@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Kaggle Notebook Automation",
+  "version": "1.0.0",
+  "description": "Automate Kaggle notebooks using AI agents powered by LangGraph and OpenAI",
+  "permissions": [
+    "activeTab",
+    "sidePanel",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.kaggle.com/*",
+    "https://*.jupyter-proxy.kaggle.net/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.kaggle.com/code/*",
+        "https://*.jupyter-proxy.kaggle.net/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open Kaggle Automation Panel"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
