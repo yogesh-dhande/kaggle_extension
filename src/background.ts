@@ -3,7 +3,7 @@ import { ChromeMessage } from './types';
 
 // Handle extension installation
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('Kaggle Notebook Automation extension installed');
+  // Extension installed
 });
 
 // Handle extension icon click - open side panel
@@ -14,8 +14,7 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 // Handle messages from content script and side panel
-chrome.runtime.onMessage.addListener((message: ChromeMessage, sender, sendResponse) => {
-  console.log('Background received message:', message);
+chrome.runtime.onMessage.addListener((message: ChromeMessage) => {
 
   if (message.type === 'RUN_AGENT') {
     const { prompt, notebookState, azureConfig } = message.payload;
@@ -49,5 +48,3 @@ chrome.runtime.onMessage.addListener((message: ChromeMessage, sender, sendRespon
 
   return false;
 });
-
-console.log('Kaggle Notebook Automation background script loaded');

@@ -12,6 +12,29 @@ interface AgentState {
   actions: any[];
 }
 
+// Helper function to get cell output after execution
+async function getCellOutput(tabId: number, index: number, maxWaitMs: number = 10000): Promise<string> {
+  const startTime = Date.now();
+  const pollInterval = 500; // Check every 500ms
+  
+  while (Date.now() - startTime < maxWaitMs) {
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+    
+    const stateResponse = await chrome.tabs.sendMessage(tabId, {
+      type: 'GET_NOTEBOOK_STATE'
+    });
+    
+    if (stateResponse.success && stateResponse.data) {
+      const cell = stateResponse.data.cells[index];
+      if (cell && cell.outputs && cell.outputs.length > 0) {
+        return cell.outputs.join('\n');
+      }
+    }
+  }
+  
+  return 'No output captured (execution may still be running)';
+}
+
 // Define tools for the agent
 const addCodeCellTool = tool(
   async ({ index, content }: { index: number; content: string }) => {
@@ -19,16 +42,32 @@ const addCodeCellTool = tool(
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab.id) return 'Failed: No active tab';
 
-    const response = await chrome.tabs.sendMessage(tab.id, {
+    const addResponse = await chrome.tabs.sendMessage(tab.id, {
       type: 'ADD_CODE_CELL',
       payload: { index, content }
     });
 
-    return response.success ? `Successfully added code cell at index ${index}` : 'Failed to add code cell';
+    if (!addResponse.success) {
+      return 'Failed to add code cell';
+    }
+
+    // Execute the newly added cell
+    const executeResponse = await chrome.tabs.sendMessage(tab.id, {
+      type: 'EXECUTE_CELL',
+      payload: { index }
+    });
+
+    if (!executeResponse.success) {
+      return `Added code cell at index ${index} but failed to execute it`;
+    }
+
+    // Wait for and capture the output
+    const output = await getCellOutput(tab.id, index);
+    return `Successfully added and executed code cell at index ${index}\n\nOutput:\n${output}`;
   },
   {
     name: 'add_code_cell',
-    description: 'Add a new code cell at the specified index in the Kaggle notebook',
+    description: 'Add a new code cell at the specified index in the Kaggle notebook and execute it',
     schema: z.object({
       index: z.number().describe('The index where the code cell should be inserted'),
       content: z.string().describe('The Python code content for the cell')
@@ -63,40 +102,53 @@ const updateCellTool = tool(
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab.id) return 'Failed: No active tab';
 
-    const response = await chrome.tabs.sendMessage(tab.id, {
+    // First, get the cell type to determine if we should execute it
+    const stateResponse = await chrome.tabs.sendMessage(tab.id, {
+      type: 'GET_NOTEBOOK_STATE'
+    });
+
+    if (!stateResponse.success || !stateResponse.data) {
+      return 'Failed to get notebook state';
+    }
+
+    const cell = stateResponse.data.cells[index];
+    if (!cell) {
+      return `Cell at index ${index} not found`;
+    }
+
+    const updateResponse = await chrome.tabs.sendMessage(tab.id, {
       type: 'UPDATE_CELL',
       payload: { index, content }
     });
 
-    return response.success ? `Successfully updated cell at index ${index}` : 'Failed to update cell';
+    if (!updateResponse.success) {
+      return 'Failed to update cell';
+    }
+
+    // Only execute if it's a code cell
+    if (cell.type === 'code') {
+      const executeResponse = await chrome.tabs.sendMessage(tab.id, {
+        type: 'EXECUTE_CELL',
+        payload: { index }
+      });
+
+      if (!executeResponse.success) {
+        return `Updated cell at index ${index} but failed to execute it`;
+      }
+
+      // Wait for and capture the output
+      const output = await getCellOutput(tab.id, index);
+      return `Successfully updated and executed code cell at index ${index}\n\nOutput:\n${output}`;
+    }
+
+    return `Successfully updated markdown cell at index ${index}`;
   },
   {
     name: 'update_cell',
-    description: 'Update the content of an existing cell in the Kaggle notebook',
+    description: 'Update the content of an existing cell in the Kaggle notebook. If it is a code cell, it will be executed automatically.',
     schema: z.object({
       index: z.number().describe('The index of the cell to update'),
       content: z.string().describe('The new content for the cell')
-    })
-  }
-);
-
-const executeCellTool = tool(
-  async ({ index }: { index: number }) => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab.id) return 'Failed: No active tab';
-
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      type: 'EXECUTE_CELL',
-      payload: { index }
-    });
-
-    return response.success ? `Successfully executed cell at index ${index}` : 'Failed to execute cell';
-  },
-  {
-    name: 'execute_cell',
-    description: 'Execute a code cell in the Kaggle notebook',
-    schema: z.object({
-      index: z.number().describe('The index of the cell to execute')
     })
   }
 );
@@ -108,15 +160,31 @@ export async function createAgent(config: AzureConfig) {
     azureOpenAIApiInstanceName: config.instanceName,
     azureOpenAIApiDeploymentName: config.deploymentName,
     azureOpenAIApiVersion: config.apiVersion || '2024-02-15-preview',
-    temperature: 0
+    temperature: 0.3,
+    maxTokens: 4096
   });
 
-  const tools = [addCodeCellTool, addMarkdownCellTool, updateCellTool, executeCellTool];
+  const tools = [addCodeCellTool, addMarkdownCellTool, updateCellTool];
   const modelWithTools = model.bindTools(tools);
 
   // Define the agent node
   async function callModel(state: AgentState): Promise<Partial<AgentState>> {
-    const response = await modelWithTools.invoke(state.messages);
+    // Inject current notebook state into context
+    const cellCount = state.notebookState.cells.length;
+    const cellsSummary = cellCount > 0 
+      ? state.notebookState.cells.map((cell, i) => 
+          `Cell ${i} (${cell.type}): ${cell.source.substring(0, 100)}${cell.source.length > 100 ? '...' : ''}`
+        ).join('\n')
+      : 'No cells in notebook.';
+    
+    const notebookStateMessage = new SystemMessage(
+      `CURRENT NOTEBOOK STATE (${cellCount} cells):\n${cellsSummary}\n\nUse these exact indices when referencing cells.`
+    );
+    
+    // Prepend notebook state to messages for this invocation only
+    const messagesWithState = [notebookStateMessage, ...state.messages];
+    const response = await modelWithTools.invoke(messagesWithState);
+    
     return { messages: [response] };
   }
 
@@ -150,7 +218,27 @@ export async function createAgent(config: AzureConfig) {
       }
     }
 
-    return { messages: toolResults };
+    // Fetch updated notebook state after tool execution
+    let updatedNotebookState = state.notebookState;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab.id) {
+        const stateResponse = await chrome.tabs.sendMessage(tab.id, {
+          type: 'GET_NOTEBOOK_STATE'
+        });
+        
+        if (stateResponse.success && stateResponse.data) {
+          updatedNotebookState = stateResponse.data;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch updated notebook state:', error);
+    }
+
+    return { 
+      messages: toolResults,
+      notebookState: updatedNotebookState
+    };
   }
 
   // Define routing logic
@@ -214,20 +302,83 @@ export async function runAgent(
       ? notebookState.cells.map((cell, i) => `Cell ${i} (${cell.type}): ${cell.source.substring(0, 100)}...`).join('\n')
       : 'No cells found in the notebook.';
 
-    const systemPrompt = `You are an AI assistant that helps automate Kaggle notebooks. 
+    const systemPrompt = `You are an expert AI assistant that helps automate Kaggle notebooks through iterative code execution.
+
 You have access to the current notebook state with ${cellCount} cells.
 
 Current notebook structure:
 ${cellsSummary}
 
-You can:
-- Add code cells at any index
-- Add markdown cells at any index
-- Update existing cell content
-- Execute code cells
+## Your Capabilities:
+- **add_code_cell**: Add a new Python code cell at any index (automatically executed, output returned)
+- **add_markdown_cell**: Add a new markdown cell at any index
+- **update_cell**: Update existing cell content (code cells are automatically executed, output returned)
 
-When the user asks you to perform actions, use the appropriate tools to modify the notebook.
-Be precise with cell indices and content.`;
+## Important Workflow Instructions:
+1. **Break down complex tasks** into multiple steps
+2. **Write code incrementally** - add one cell at a time, check output, then proceed
+3. **Always verify outputs** - check execution results before moving to the next step
+4. **Auto-fix errors** - if you see an error, exception, or traceback in the output:
+   - IMMEDIATELY analyze the error message
+   - Identify the root cause (missing import, wrong variable name, incorrect syntax, etc.)
+   - Update the cell with the corrected code
+   - The fixed cell will be automatically executed
+   - Continue this loop until the code runs successfully
+5. **Use multiple rounds** - don't try to solve everything in one cell; use multiple cells for:
+   - Data loading and exploration
+   - Data preprocessing
+   - Model training
+   - Evaluation and visualization
+6. **Check your work** - after each code execution, verify the output is correct before proceeding
+7. **Never give up on errors** - keep iterating until the code works correctly
+
+## Execution Behavior:
+When you add or update code cells, they are AUTOMATICALLY EXECUTED and you receive the output immediately.
+The notebook state is AUTOMATICALLY REFRESHED after each action, so you always have the current cell count and structure.
+Use this feedback loop to:
+- Verify your code works correctly
+- Inspect data and results
+- Debug errors
+- Make informed decisions about next steps
+- Reference the correct cell indices (they update as you add cells)
+
+## Error Detection and Recovery:
+When you see ANY of these patterns in the output, it means there's an error that MUST be fixed:
+- "Error:", "Exception:", "Traceback", "SyntaxError", "NameError", "TypeError", "ValueError", "KeyError", "AttributeError", "ImportError", "ModuleNotFoundError"
+- Stack traces with "File" and "line" references
+- "Failed", "not defined", "has no attribute", "cannot import"
+
+When an error is detected:
+1. Read the error message carefully to understand what went wrong
+2. Identify the specific line or operation that failed
+3. Use update_cell to fix the problematic cell with corrected code
+4. Wait for the new execution output
+5. If still failing, analyze the new error and iterate again
+6. Do NOT move forward until the error is resolved
+
+## Best Practices:
+- Start with simple exploratory code (e.g., check data shape, dtypes)
+- Build complexity gradually
+- Add markdown cells to document your approach
+- If a task requires multiple operations, use multiple cells
+- Always check outputs before declaring success
+
+## Managing Output Size (CRITICAL):
+To preserve context length and avoid token limits:
+- **Limit print statements**: Use .head(), .tail(), .sample() instead of printing entire DataFrames
+- **Suppress verbose output**: Add semicolon at end of lines to suppress output, or assign to underscore
+- **Use shape/info**: Print df.shape, df.info(), df.describe() instead of full data
+- **Limit iterations**: When printing in loops, limit to first few items (e.g., for i in range(min(5, len(data))))
+- **Avoid large visualizations in output**: Save plots instead of displaying inline when possible
+- **Summarize results**: Print summary statistics rather than full arrays/lists
+
+Examples of good practices:
+- ✅ print(df.head()) instead of print(df)
+- ✅ print(f"Shape: {df.shape}") instead of printing full DataFrame
+- ✅ model.fit(X, y); (semicolon suppresses output)
+- ✅ print(array[:10]) instead of print(array) for large arrays
+
+Be precise with cell indices and content. Think step-by-step and use the execution feedback to guide your work.`;
 
     const initialState: AgentState = {
       messages: [
@@ -238,7 +389,9 @@ Be precise with cell indices and content.`;
       actions: []
     };
 
-    const result = await agent.invoke(initialState);
+    const result = await agent.invoke(initialState, {
+      recursionLimit: 50 // Allow up to 50 iterations for complex multi-step tasks
+    });
     
     const lastMessage = result.messages[result.messages.length - 1];
     return lastMessage.content as string;

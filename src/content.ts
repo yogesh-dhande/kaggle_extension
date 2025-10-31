@@ -1,16 +1,7 @@
 import { NotebookCell, NotebookState, ChromeMessage } from './types';
 
-// Check if we're in an iframe or main window
-const isInIframe = window.self !== window.top;
+// Check if we're in the Jupyter iframe
 const isJupyterFrame = window.location.href.includes('jupyter-proxy.kaggle.net');
-
-console.log('Kaggle Notebook Automation content script loaded');
-console.log('Context:', {
-  isInIframe,
-  isJupyterFrame,
-  url: window.location.href,
-  origin: window.location.origin
-});
 
 // DOM parsing utilities for Kaggle notebooks
 class KaggleNotebookParser {
@@ -19,13 +10,10 @@ class KaggleNotebookParser {
     const container = document.querySelector('[role="feed"][aria-label="Cells"]');
     
     if (container) {
-      console.log('✅ Found cells container: [role="feed"][aria-label="Cells"]');
       return container;
     }
     
     console.error('❌ Could not find cells container');
-    console.log('Available elements with role="feed":', document.querySelectorAll('[role="feed"]'));
-    console.log('Available elements with aria-label="Cells":', document.querySelectorAll('[aria-label="Cells"]'));
     return null;
   }
 
@@ -38,7 +26,6 @@ class KaggleNotebookParser {
     
     // Kaggle cells have class .jp-Cell
     const cells = Array.from(container.querySelectorAll('.jp-Cell'));
-    console.log(`Found ${cells.length} cells with selector: .jp-Cell`);
     
     return cells;
   }
@@ -104,22 +91,12 @@ class KaggleNotebookParser {
   }
 
   public parseNotebook(): NotebookState {
-    console.log('=== Starting notebook parse ===');
-    console.log('Current URL:', window.location.href);
-    
     const cells = this.getAllCells();
-    console.log(`Total cells found: ${cells.length}`);
     
     const notebookCells: NotebookCell[] = cells.map((cell, index) => {
       const cellType = this.getCellType(cell);
       const cellContent = this.getCellContent(cell);
       const cellOutputs = this.getCellOutputs(cell);
-      
-      console.log(`Cell ${index}:`, {
-        type: cellType,
-        contentLength: cellContent.length,
-        outputsCount: cellOutputs.length
-      });
       
       return {
         id: `cell-${index}`,
@@ -137,9 +114,6 @@ class KaggleNotebookParser {
         timestamp: Date.now()
       }
     };
-    
-    console.log('=== Notebook parse complete ===');
-    console.log('Final state:', state);
     
     return state;
   }
@@ -167,8 +141,6 @@ class KaggleNotebookParser {
       console.error(`Target index ${targetIndex} out of bounds`);
       return false;
     }
-
-    console.log(`Navigating to cell ${targetIndex}`);
 
     const targetCell = cells[targetIndex] as HTMLElement;
     const rect = targetCell.getBoundingClientRect();
@@ -214,7 +186,6 @@ class KaggleNotebookParser {
       return false;
     }
     
-    console.log(`Successfully navigated to cell ${targetIndex}`);
     return true;
   }
 
@@ -277,8 +248,6 @@ class KaggleNotebookParser {
   // Add a new code cell at specified index
   public async addCodeCell(index: number, content: string = ''): Promise<boolean> {
     try {
-      console.log(`Adding code cell at index ${index} with content: ${content}`);
-      
       const cells = this.getAllCells();
       
       // Find the cell at or before the target index
@@ -334,8 +303,6 @@ class KaggleNotebookParser {
   // Add a new markdown cell at specified index
   public async addMarkdownCell(index: number, content: string = ''): Promise<boolean> {
     try {
-      console.log(`Adding markdown cell at index ${index} with content: ${content}`);
-      
       const cells = this.getAllCells();
       
       // Find the cell at or before the target index
@@ -391,8 +358,6 @@ class KaggleNotebookParser {
   // Update cell content
   public async updateCell(index: number, content: string): Promise<boolean> {
     try {
-      console.log(`Updating cell ${index} with content: ${content}`);
-      
       const cells = this.getAllCells();
       const cell = cells[index];
       
@@ -444,21 +409,10 @@ const parser = new KaggleNotebookParser();
   console.log('Parsed notebook:', parser.parseNotebook());
 };
 
-// Auto-run debug on load (only in iframe)
-if (isJupyterFrame) {
-  console.log('🔍 Running automatic DOM inspection...');
-  setTimeout(() => {
-    (window as any).debugKaggleParser();
-  }, 2000);
-}
-
 // Listen for messages from the extension
 chrome.runtime.onMessage.addListener((message: ChromeMessage, sender, sendResponse) => {
-  console.log('Content script received message:', message);
-
   // Only handle messages in the Jupyter iframe
   if (!isJupyterFrame) {
-    console.log('⏭️ Ignoring message in main window');
     return false;
   }
 
@@ -502,24 +456,18 @@ chrome.runtime.onMessage.addListener((message: ChromeMessage, sender, sendRespon
 });
 
 // Only run the notebook parser in the Jupyter iframe
-if (!isJupyterFrame) {
-  console.log('⏭️ Not in Jupyter iframe, skipping notebook parsing');
-} else {
-  console.log('✅ In Jupyter iframe, initializing notebook parser...');
-  
+if (isJupyterFrame) {
   // Wait for the notebook to be fully loaded
   function waitForNotebook(callback: () => void, maxAttempts = 20) {
     let attempts = 0;
     
     const checkInterval = setInterval(() => {
       attempts++;
-      console.log(`Attempt ${attempts}: Checking for notebook container...`);
       
       const container = document.querySelector('[role="feed"][aria-label="Cells"]');
       const cells = container?.querySelectorAll('.jp-Cell');
       
       if (container && cells && cells.length > 0) {
-        console.log(`✅ Notebook ready! Found ${cells.length} cells`);
         clearInterval(checkInterval);
         callback();
       } else if (attempts >= maxAttempts) {
@@ -527,16 +475,12 @@ if (!isJupyterFrame) {
         clearInterval(checkInterval);
         // Call callback anyway to allow manual refresh
         callback();
-      } else {
-        console.log(`Container: ${!!container}, Cells: ${cells?.length || 0}`);
       }
     }, 500); // Check every 500ms
   }
   
   // Initialize when notebook is ready
   waitForNotebook(() => {
-    console.log('Initializing notebook parser...');
-    
     // Send initial state
     const initialState = parser.parseNotebook();
     chrome.runtime.sendMessage({
@@ -546,7 +490,6 @@ if (!isJupyterFrame) {
     
     // Set up mutation observer
     const observer = new MutationObserver(() => {
-      console.log('DOM mutation detected, re-parsing notebook...');
       const notebookState = parser.parseNotebook();
       chrome.runtime.sendMessage({
         type: 'NOTEBOOK_STATE_UPDATE',
@@ -561,7 +504,6 @@ if (!isJupyterFrame) {
         subtree: true,
         characterData: true
       });
-      console.log('Mutation observer attached to cells container');
     }
   });
 }

@@ -34,5 +34,3 @@ if (existsSync(iconsDir)) {
     }
   });
 }
-
-console.log('Files copied to dist directory');
