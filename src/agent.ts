@@ -170,17 +170,23 @@ export async function createAgent(config: AzureConfig) {
   // Define the agent node
   async function callModel(state: AgentState): Promise<Partial<AgentState>> {
     // Inject current notebook state into context
-    const cellCount = state.notebookState.cells.length;
-    const cellsSummary = cellCount > 0 
-      ? state.notebookState.cells.map((cell, i) => 
-          `Cell ${i} (${cell.type}): ${cell.source.substring(0, 100)}${cell.source.length > 100 ? '...' : ''}`
-        ).join('\n')
-      : 'No cells in notebook.';
+    const cellsSummary = state.notebookState.cells.map((cell, i) => {
+      if (cell.type === 'code') {
+        const newCell = {
+          ...cell,
+          source: cell.source.substring(0, 4000),
+          outputs: cell.outputs?.map(output => output.substring(0, 4000))
+        }
+        return newCell;
+      } else {
+        return cell;
+      }
+    })
     
     const notebookStateMessage = new SystemMessage(
-      `CURRENT NOTEBOOK STATE (${cellCount} cells):\n${cellsSummary}\n\nUse these exact indices when referencing cells.`
+      `CURRENT NOTEBOOK STATE: ${JSON.stringify(cellsSummary, null, 2)}\n\nUse these exact indices when referencing cells.`
     );
-    
+    console.log(notebookStateMessage)
     // Prepend notebook state to messages for this invocation only
     const messagesWithState = [notebookStateMessage, ...state.messages];
     const response = await modelWithTools.invoke(messagesWithState);
