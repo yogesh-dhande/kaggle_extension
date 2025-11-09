@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Settings, Loader2, BookOpen, MessageSquare, FileJson, RefreshCw } from 'lucide-react';
-import { Message, NotebookState, AzureConfig } from '../types';
+import { Send, Settings, Loader2, BookOpen, MessageSquare, FileJson, RefreshCw, Code2, MessageCircle } from 'lucide-react';
+import { Message, NotebookState, AzureConfig, AgentMode } from '../types';
 import ChatMessage from './ChatMessage';
 import NotebookView from './NotebookView';
 import JsonPreview from './JsonPreview';
@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'json'>('chat');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [agentMode, setAgentMode] = useState<AgentMode>('chat');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -94,7 +95,8 @@ const App: React.FC = () => {
       payload: {
         prompt: input,
         notebookState,
-        azureConfig
+        azureConfig,
+        mode: agentMode
       }
     });
   };
@@ -134,12 +136,41 @@ const App: React.FC = () => {
           <BookOpen className="w-5 h-5 text-blue-600" />
           <h1 className="text-lg font-semibold text-gray-800">Kaggle Automation</h1>
         </div>
-        <button
-          onClick={() => setShowSettings(!showSettings)}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <Settings className="w-5 h-5 text-gray-600" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Agent Mode Toggle */}
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setAgentMode('chat')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                agentMode === 'chat'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+              title="Chat mode - Get help and suggestions without modifying the notebook"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              Chat
+            </button>
+            <button
+              onClick={() => setAgentMode('code')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                agentMode === 'code'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+              title="Code mode - Agent can add and execute cells in the notebook"
+            >
+              <Code2 className="w-3.5 h-3.5" />
+              Code
+            </button>
+          </div>
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <Settings className="w-5 h-5 text-gray-600" />
+          </button>
+        </div>
       </div>
 
       {/* Settings Panel */}

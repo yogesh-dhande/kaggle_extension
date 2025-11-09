@@ -17,10 +17,10 @@ chrome.action.onClicked.addListener((tab) => {
 chrome.runtime.onMessage.addListener((message: ChromeMessage) => {
 
   if (message.type === 'RUN_AGENT') {
-    const { prompt, notebookState, azureConfig } = message.payload;
+    const { prompt, notebookState, azureConfig, mode } = message.payload;
 
     // Run the agent asynchronously
-    runAgent(prompt, notebookState, azureConfig)
+    runAgent(prompt, notebookState, azureConfig, mode || 'code')
       .then(response => {
         // Send response back to side panel
         chrome.runtime.sendMessage({

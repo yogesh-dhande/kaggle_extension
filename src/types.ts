@@ -42,5 +42,7 @@ export interface AzureConfig {
   apiKey: string;
   instanceName: string;
   deploymentName: string;
-  apiVersion?: string;
+  apiVersion: string;
 }
+
+export type AgentMode = 'chat' | 'code';

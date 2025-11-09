@@ -3,7 +3,7 @@ import { StateGraph, END, START } from '@langchain/langgraph';
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { NotebookState, AzureConfig } from './types';
+import { NotebookState, AzureConfig, AgentMode } from './types';
 
 // Define the agent state
 interface AgentState {
@@ -154,7 +154,7 @@ const updateCellTool = tool(
 );
 
 // Create the agent
-export async function createAgent(config: AzureConfig) {
+export async function createAgent(config: AzureConfig, mode: AgentMode = 'code') {
   const model = new AzureChatOpenAI({
     azureOpenAIApiKey: config.apiKey,
     azureOpenAIApiInstanceName: config.instanceName,
@@ -165,7 +165,7 @@ export async function createAgent(config: AzureConfig) {
   });
 
   const tools = [addCodeCellTool, addMarkdownCellTool, updateCellTool];
-  const modelWithTools = model.bindTools(tools);
+  const modelWithTools = mode === 'code' ? model.bindTools(tools) : model;
 
   // Define the agent node
   async function callModel(state: AgentState): Promise<Partial<AgentState>> {
@@ -208,7 +208,7 @@ export async function createAgent(config: AzureConfig) {
       const tool = tools.find(t => t.name === toolCall.name);
       if (tool) {
         try {
-          const result = await tool.invoke(toolCall.args);
+          const result = await tool.invoke(toolCall.args as any);
           toolResults.push(new ToolMessage({
             content: String(result),
             tool_call_id: toolCall.id || '',
@@ -293,7 +293,8 @@ export async function createAgent(config: AzureConfig) {
 export async function runAgent(
   prompt: string,
   notebookState: NotebookState | null,
-  config: AzureConfig
+  config: AzureConfig,
+  mode: AgentMode = 'code'
 ): Promise<string> {
   try {
     // Validate notebook state
@@ -301,14 +302,37 @@ export async function runAgent(
       return 'Error: Notebook state not available. Please make sure you are on a Kaggle notebook page and the page has fully loaded.';
     }
 
-    const agent = await createAgent(config);
+    const agent = await createAgent(config, mode);
 
     const cellCount = notebookState.cells.length;
     const cellsSummary = cellCount > 0 
       ? notebookState.cells.map((cell, i) => `Cell ${i} (${cell.type}): ${cell.source.substring(0, 100)}...`).join('\n')
       : 'No cells found in the notebook.';
 
-    const systemPrompt = `You are an expert AI assistant that helps automate Kaggle notebooks through iterative code execution.
+    const systemPrompt = mode === 'chat' 
+      ? `You are an expert AI assistant that helps users understand and work with Kaggle notebooks.
+
+You have access to the current notebook state with ${cellCount} cells.
+
+Current notebook structure:
+${cellsSummary}
+
+## Your Role:
+- Answer questions about the notebook content
+- Provide code suggestions and explanations
+- Help with data science concepts and best practices
+- Explain errors and suggest fixes
+- Provide guidance on machine learning workflows
+
+## Important:
+- You are in CHAT MODE - you cannot directly modify the notebook
+- Format your responses using Markdown
+- Use code blocks with language tags for syntax highlighting (e.g., \`\`\`python)
+- Be clear, concise, and helpful
+- When suggesting code, explain what it does and why
+
+Respond with well-formatted markdown including code blocks where appropriate.`
+      : `You are an expert AI assistant that helps automate Kaggle notebooks through iterative code execution.
 
 You have access to the current notebook state with ${cellCount} cells.
 
