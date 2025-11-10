@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Settings, Loader2, BookOpen, MessageSquare, FileJson, RefreshCw, Code2, MessageCircle } from 'lucide-react';
+import { Send, Settings, Loader2, BookOpen, MessageSquare, FileJson, RefreshCw, Code2, MessageCircle, Trash2 } from 'lucide-react';
 import { Message, NotebookState, AzureConfig, AgentMode } from '../types';
 import ChatMessage from './ChatMessage';
 import NotebookView from './NotebookView';
@@ -128,6 +128,15 @@ const App: React.FC = () => {
     });
   };
 
+  const handleClearChat = () => {
+    if (messages.length === 0) return;
+    
+    const confirmed = window.confirm('Are you sure you want to clear the chat history? This action cannot be undone.');
+    if (confirmed) {
+      setMessages([]);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
@@ -164,6 +173,14 @@ const App: React.FC = () => {
               Code
             </button>
           </div>
+          <button
+            onClick={handleClearChat}
+            disabled={messages.length === 0}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Clear chat history"
+          >
+            <Trash2 className="w-5 h-5 text-gray-600" />
+          </button>
           <button
             onClick={() => setShowSettings(!showSettings)}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
