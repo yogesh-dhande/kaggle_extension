@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Settings, Loader2, BookOpen, MessageSquare, FileJson, RefreshCw, Code2, MessageCircle, Trash2 } from 'lucide-react';
-import { Message, NotebookState, AzureConfig, AgentMode } from '../types';
+import { Message, NotebookState, LLMConfig, LLMProvider, AgentMode } from '../types';
 import ChatMessage from './ChatMessage';
 import NotebookView from './NotebookView';
 import JsonPreview from './JsonPreview';
@@ -10,11 +10,12 @@ const App: React.FC = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [notebookState, setNotebookState] = useState<NotebookState | null>(null);
-  const [azureConfig, setAzureConfig] = useState<AzureConfig>({
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>({
+    provider: 'openai',
     apiKey: '',
-    instanceName: '',
-    deploymentName: '',
-    apiVersion: '2024-02-15-preview'
+    model: '',
+    temperature: 0.3,
+    maxTokens: 4096
   });
   const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'json'>('chat');
@@ -23,10 +24,10 @@ const App: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Load Azure config from storage
-    chrome.storage.local.get(['azure_config'], (result) => {
-      if (result.azure_config) {
-        setAzureConfig(result.azure_config);
+    // Load LLM config from storage
+    chrome.storage.local.get(['llm_config'], (result) => {
+      if (result.llm_config) {
+        setLlmConfig(result.llm_config);
       }
     });
 
@@ -67,8 +68,8 @@ const App: React.FC = () => {
   const handleSendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
-    if (!azureConfig.apiKey || !azureConfig.instanceName || !azureConfig.deploymentName) {
-      alert('Please configure Azure OpenAI settings');
+    if (!llmConfig.apiKey) {
+      alert('Please configure LLM settings');
       setShowSettings(true);
       return;
     }
@@ -95,20 +96,20 @@ const App: React.FC = () => {
       payload: {
         prompt: input,
         notebookState,
-        azureConfig,
+        llmConfig,
         mode: agentMode
       }
     });
   };
 
   const handleSaveConfig = () => {
-    if (!azureConfig.apiKey || !azureConfig.instanceName || !azureConfig.deploymentName) {
-      alert('Please fill in all required fields');
+    if (!llmConfig.apiKey) {
+      alert('Please provide an API key');
       return;
     }
-    chrome.storage.local.set({ azure_config: azureConfig }, () => {
+    chrome.storage.local.set({ llm_config: llmConfig }, () => {
       setShowSettings(false);
-      alert('Azure configuration saved successfully');
+      alert('LLM configuration saved successfully');
     });
   };
 
@@ -193,53 +194,75 @@ const App: React.FC = () => {
       {/* Settings Panel */}
       {showSettings && (
         <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-3">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3">Azure OpenAI Configuration</h3>
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">LLM Configuration</h3>
           <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Provider *
+              </label>
+              <select
+                value={llmConfig.provider}
+                onChange={(e) => setLlmConfig({...llmConfig, provider: e.target.value as LLMProvider, model: ''})}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="gemini">Google Gemini</option>
+              </select>
+            </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
                 API Key *
               </label>
               <input
                 type="password"
-                value={azureConfig.apiKey}
-                onChange={(e) => setAzureConfig({...azureConfig, apiKey: e.target.value})}
-                placeholder="Your Azure OpenAI API key"
+                value={llmConfig.apiKey}
+                onChange={(e) => setLlmConfig({...llmConfig, apiKey: e.target.value})}
+                placeholder={`Your ${llmConfig.provider === 'openai' ? 'OpenAI' : llmConfig.provider === 'anthropic' ? 'Anthropic' : 'Google'} API key`}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                Instance Name *
+                Model (optional)
               </label>
               <input
                 type="text"
-                value={azureConfig.instanceName}
-                onChange={(e) => setAzureConfig({...azureConfig, instanceName: e.target.value})}
-                placeholder="e.g., my-azure-instance"
+                value={llmConfig.model || ''}
+                onChange={(e) => setLlmConfig({...llmConfig, model: e.target.value})}
+                placeholder={
+                  llmConfig.provider === 'openai' ? 'e.g., gpt-4o (default)' :
+                  llmConfig.provider === 'anthropic' ? 'e.g., claude-3-5-sonnet-20241022 (default)' :
+                  'e.g., gemini-1.5-pro (default)'
+                }
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                Deployment Name *
+                Temperature (optional)
               </label>
               <input
-                type="text"
-                value={azureConfig.deploymentName}
-                onChange={(e) => setAzureConfig({...azureConfig, deploymentName: e.target.value})}
-                placeholder="e.g., gpt-4"
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                value={llmConfig.temperature ?? 0.3}
+                onChange={(e) => setLlmConfig({...llmConfig, temperature: parseFloat(e.target.value)})}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                API Version
+                Max Tokens (optional)
               </label>
               <input
-                type="text"
-                value={azureConfig.apiVersion}
-                onChange={(e) => setAzureConfig({...azureConfig, apiVersion: e.target.value})}
-                placeholder="2024-02-15-preview"
+                type="number"
+                min="1"
+                max="32000"
+                step="1"
+                value={llmConfig.maxTokens ?? 4096}
+                onChange={(e) => setLlmConfig({...llmConfig, maxTokens: parseInt(e.target.value)})}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>

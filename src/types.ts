@@ -38,11 +38,14 @@ export interface ChromeMessage {
   payload?: any;
 }
 
-export interface AzureConfig {
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini';
+
+export interface LLMConfig {
+  provider: LLMProvider;
   apiKey: string;
-  instanceName: string;
-  deploymentName: string;
-  apiVersion: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
 }
 
 export type AgentMode = 'chat' | 'code';

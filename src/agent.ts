@@ -1,9 +1,11 @@
-import { AzureChatOpenAI } from '@langchain/openai';
+import { ChatOpenAI } from '@langchain/openai';
+import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { StateGraph, END, START } from '@langchain/langgraph';
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { NotebookState, AzureConfig, AgentMode } from './types';
+import { NotebookState, LLMConfig, AgentMode } from './types';
 
 // Define the agent state
 interface AgentState {
@@ -154,15 +156,40 @@ const updateCellTool = tool(
 );
 
 // Create the agent
-export async function createAgent(config: AzureConfig, mode: AgentMode = 'code') {
-  const model = new AzureChatOpenAI({
-    azureOpenAIApiKey: config.apiKey,
-    azureOpenAIApiInstanceName: config.instanceName,
-    azureOpenAIApiDeploymentName: config.deploymentName,
-    azureOpenAIApiVersion: config.apiVersion || '2024-02-15-preview',
-    temperature: 0.3,
-    maxTokens: 4096
-  });
+export async function createAgent(config: LLMConfig, mode: AgentMode = 'code') {
+  let model;
+  
+  switch (config.provider) {
+    case 'openai':
+      model = new ChatOpenAI({
+        openAIApiKey: config.apiKey,
+        modelName: config.model || 'gpt-4o',
+        temperature: config.temperature ?? 0.3,
+        maxTokens: config.maxTokens ?? 4096
+      });
+      break;
+    
+    case 'anthropic':
+      model = new ChatAnthropic({
+        anthropicApiKey: config.apiKey,
+        modelName: config.model || 'claude-3-5-sonnet-20241022',
+        temperature: config.temperature ?? 0.3,
+        maxTokens: config.maxTokens ?? 4096
+      });
+      break;
+    
+    case 'gemini':
+      model = new ChatGoogleGenerativeAI({
+        apiKey: config.apiKey,
+        modelName: config.model || 'gemini-1.5-pro',
+        temperature: config.temperature ?? 0.3,
+        maxOutputTokens: config.maxTokens ?? 4096
+      });
+      break;
+    
+    default:
+      throw new Error(`Unsupported LLM provider: ${config.provider}`);
+  }
 
   const tools = [addCodeCellTool, addMarkdownCellTool, updateCellTool];
   const modelWithTools = mode === 'code' ? model.bindTools(tools) : model;
@@ -293,7 +320,7 @@ export async function createAgent(config: AzureConfig, mode: AgentMode = 'code')
 export async function runAgent(
   prompt: string,
   notebookState: NotebookState | null,
-  config: AzureConfig,
+  config: LLMConfig,
   mode: AgentMode = 'code'
 ): Promise<string> {
   try {

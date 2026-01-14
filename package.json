@@ -10,7 +10,9 @@
     "postbuild": "node copy-files.js"
   },
   "dependencies": {
+    "@langchain/anthropic": "^0.2.0",
     "@langchain/core": "^0.2.0",
+    "@langchain/google-genai": "^0.0.25",
     "@langchain/langgraph": "^0.0.30",
     "@langchain/openai": "^0.2.0",
     "@tailwindcss/typography": "^0.5.19",
