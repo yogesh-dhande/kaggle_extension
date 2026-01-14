@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Settings, Loader2, BookOpen, MessageSquare, FileJson, RefreshCw, Code2, MessageCircle, Trash2 } from 'lucide-react';
+import { Send, Settings, Loader2, BookOpen, MessageSquare, FileJson, RefreshCw, Code2, MessageCircle, Trash2, Code, FileText } from 'lucide-react';
 import { Message, NotebookState, LLMConfig, LLMProvider, AgentMode } from '../types';
 import ChatMessage from './ChatMessage';
-import NotebookView from './NotebookView';
-import JsonPreview from './JsonPreview';
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -276,11 +274,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Notebook State */}
-      {notebookState && (
-        <NotebookView notebookState={notebookState} />
-      )}
-
       {/* Tabs */}
       <div className="flex items-center justify-between border-b border-gray-200 bg-white">
         <div className="flex">
@@ -324,8 +317,8 @@ const App: React.FC = () => {
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
             {messages.length === 0 && (
               <div className="text-center text-gray-500 mt-8">
-                <p className="text-lg font-medium mb-2">Welcome to Kaggle Automation</p>
-                <p className="text-sm">Send a prompt to automate your Kaggle notebook</p>
+                <p className="text-lg font-medium mb-2">Welcome to Kaggle Coding Agent</p>
+                <p className="text-sm">Chat with the notebook or write code using LLMs</p>
               </div>
             )}
             {messages.map((message) => (
@@ -369,8 +362,35 @@ const App: React.FC = () => {
           </div>
         </>
       ) : (
-        <div className="flex-1 overflow-hidden">
-          <JsonPreview notebookState={notebookState} />
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {!notebookState ? (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              <p className="text-sm">No notebook data available</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {notebookState.cells.map((cell) => (
+                <div
+                  key={cell.id}
+                  className="border border-gray-200 rounded-lg p-3 bg-white"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    {cell.type === 'code' ? (
+                      <Code className="w-4 h-4 text-blue-600" />
+                    ) : (
+                      <FileText className="w-4 h-4 text-green-600" />
+                    )}
+                    <span className="font-medium text-gray-700 text-sm">
+                      Cell {cell.index} ({cell.type})
+                    </span>
+                  </div>
+                  <pre className="text-xs text-gray-600 whitespace-pre-wrap overflow-auto max-h-96 bg-gray-50 p-2 rounded border border-gray-100">
+                    {cell.source}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

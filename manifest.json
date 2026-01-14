@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Kaggle Notebook Automation",
+  "name": "Kaggle Coding Agent",
   "version": "1.0.0",
-  "description": "Automate Kaggle notebooks using AI agents powered by LangGraph and OpenAI",
+  "description": "Code with AI assistance in Kaggle notebooks",
   "permissions": [
     "activeTab",
     "sidePanel",
